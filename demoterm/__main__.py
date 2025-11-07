@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from demoterm import __version__
 import curses
 import fcntl
 import os
@@ -91,6 +92,7 @@ def write_status_zone(esc, width, height, input_line):
         input_line = "-- idle --"
     else:
         input_line = f"-- typing -- {input_line}"
+    input_line = f"[demoterm {__version__}] {input_line}"
     input_line = input_line[-width:]
     os.write(1, input_line.encode())
 

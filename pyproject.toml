@@ -4,12 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "demoterm"
-version = "1.0"
 authors = [{name = "Etienne Dublé (CNRS)", email = "etienne.duble@imag.fr"}]
 keywords = ["CLI", "Demo"]
 license = "BSD-3-Clause"
 readme = "README.md"
 requires-python = ">=3.11"
+dynamic = ["version"]
+
+[tool.setuptools.dynamic]
+version = {attr = "demoterm.__version__"}
 
 [project.scripts]
 demoterm = "demoterm.__main__:main"
