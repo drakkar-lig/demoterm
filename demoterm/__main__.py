@@ -81,10 +81,10 @@ def set_tty_size(width, height):
     packed = struct.pack("HHHH", height, width, 0, 0)
     fcntl.ioctl(1, termios.TIOCSWINSZ, packed)
 
-def write_status_zone(esc, width, height, input_line):
+def write_status_zone(stdout, esc, width, height, input_line):
     # set cursor to penultimate row and write separator line
     esc.set_cursor_position(height-2, 0)
-    os.write(1, ('\u2500'*width).encode())
+    stdout.write(('\u2500'*width).encode())
     # set cursor to last row and update it
     esc.set_cursor_position(height-1, 0)
     esc.clear_to_eol()
@@ -94,7 +94,7 @@ def write_status_zone(esc, width, height, input_line):
         input_line = f"-- typing -- {input_line}"
     input_line = f"[demoterm {__version__}] {input_line}"
     input_line = input_line[-width:]
-    os.write(1, input_line.encode())
+    stdout.write(input_line.encode())
 
 def invalidate_old_history(input_history):
     if len(input_history) == 0:
@@ -113,7 +113,8 @@ def next_invalidate_timeout(input_history):
         return None
 
 class EscCodeGenerator:
-    def __init__(self):
+    def __init__(self, stdout):
+        self._stdout = stdout
         self._esc_codes = {}
         for terminfo_code, method_name in (
                 ("clear", "clear"),
@@ -134,7 +135,7 @@ class EscCodeGenerator:
     def _write_ansi_escape(self, esc_code, *args):
         if len(args) > 0:
             esc_code = curses.tparm(esc_code, *args)
-        os.write(1, esc_code)
+        self._stdout.write(esc_code)
 
 def select_shell():
     if len(sys.argv) > 1:
@@ -190,6 +191,17 @@ def get_cursor_placement_filter(max_row):
     return (lambda data:
             RE_ESC_SET_CURSOR_POS.sub(replace_match, data))
 
+class Buffer:
+    def __init__(self, fd):
+        self._fd = fd
+        self._buf = b''
+    def write(self, buf):
+        self._buf += buf
+    def flush(self):
+        if len(self._buf) > 0:
+            os.write(self._fd, self._buf)
+            self._buf = b''
+
 def main():
     # Check which shell we should start
     shell_cmd = select_shell()
@@ -203,7 +215,8 @@ def main():
     width = curses.tigetnum("cols")
     if height < 1 or width < 1:
         sys.exit("Could not retrieve terminal size, exiting.")
-    esc = EscCodeGenerator()
+    stdout = Buffer(1)
+    esc = EscCodeGenerator(stdout)
 
     # Clear the screen and set cursor position to top left corner
     esc.clear()
@@ -263,7 +276,7 @@ def main():
 
             # write status zone
             #debug.write(f"display: {repr(input_line)}\n")
-            write_status_zone(esc, width, height, input_line)
+            write_status_zone(stdout, esc, width, height, input_line)
 
             # in case the user would have typed "reset" in the shell,
             # ensure we re-create the scroll region before waiting
@@ -272,6 +285,9 @@ def main():
             # restore and show cursor
             esc.restore_cursor_position()
             esc.show_cursor()
+
+            # flush buffered stdout data
+            stdout.flush()
 
             # -- wait for next event --
             # (or timeout if we reach HISTORY_MARGIN seconds)
@@ -293,7 +309,7 @@ def main():
                 #debug.write(f"output: {repr(data)}\n")
                 if not data:
                     break
-                os.write(1, data)
+                stdout.write(data)
 
             # Read keyboard input and save it into input_history
             # with a timestamp
@@ -314,10 +330,10 @@ def main():
     except OSError:
         pass
     finally:
-        # Restore scroll region to full height
+        # Restore scroll region to full height and clear
         esc.set_scroll_region(0, height-1)
-        # Clear the screen again
         esc.clear()
+        stdout.flush()
         # Restore initial terminal parameters
         termios.tcsetattr(1, termios.TCSADRAIN, old_settings)
 
