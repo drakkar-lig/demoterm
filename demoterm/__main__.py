@@ -228,6 +228,13 @@ def main():
     stdout = Buffer(1)
     esc = EscCodeGenerator(stdout)
 
+    # Check the set-cursor-position escape code is the one we expect
+    # (ECMA-48 CSI 'cup') because we have an hardcoded regex
+    # to catch them (see RE_ESC_SET_CURSOR_POS above).
+    cup_esc_code = esc.set_cursor_position(4, 4).get()
+    if cup_esc_code != b'\x1b[5;5H':
+        sys.exit("Terminal does not comply to ECMA-48, exiting.")
+
     # Clear the screen and set cursor position to top left corner
     esc.clear.write()
     esc.set_cursor_position(0, 0).write()
@@ -304,16 +311,25 @@ def main():
             # Read shell output and print it
             if master_fd in rlist:
                 data = read_available(master_fd)
-                # intercept the escape sequence querying the terminal size
+                # Note: there are a few hard-coded escape sequences here,
+                # because the terminfo database does not give them a name.
+                # If ever the terminal uses different sequences, then
+                # me might get problems in case of complex cli programs
+                # (vim, exiting top, etc.).
+                # But for simpler cases, demoterm should still work fine.
+
+                # Intercept the escape sequence querying the terminal size
                 if b"\x1b[18t" in data:
                     data = data.replace(b"\x1b[18t", b"")
                     response = f"\x1b[8;{height-2};{width}t".encode()
                     os.write(master_fd, response)
                     if len(data) == 0:
                         continue
+                # Ensure the child does not escape the scroll region and
+                # overwrite the status zone.
                 data = cursor_placement_filter(data)
-                # in case of terminal reset requested by the child process,
-                # do it but then restore our scroll window
+                # In case of terminal reset requested by the child process,
+                # do it but then restore our scroll window.
                 ssr_esc_code = esc.set_scroll_region(0, height-3).get()
                 data = data.replace(b"\x1bc", b"\x1bc" + ssr_esc_code)
                 data = data.replace(b"\x1b[!p", b"\x1b[!p" + ssr_esc_code)
