@@ -83,11 +83,11 @@ def set_tty_size(width, height):
 
 def write_status_zone(stdout, esc, width, height, input_line):
     # set cursor to penultimate row and write separator line
-    esc.set_cursor_position(height-2, 0)
+    esc.set_cursor_position(height-2, 0).write()
     stdout.write(('\u2500'*width).encode())
     # set cursor to last row and update it
-    esc.set_cursor_position(height-1, 0)
-    esc.clear_to_eol()
+    esc.set_cursor_position(height-1, 0).write()
+    esc.clear_to_eol.write()
     if input_line == "":
         input_line = "-- idle --"
     else:
@@ -112,6 +112,20 @@ def next_invalidate_timeout(input_history):
     else:
         return None
 
+class EscCodeObject:
+    def __init__(self, stdout, esc_code):
+        self._stdout = stdout
+        self._base_esc_code = esc_code
+        self._esc_code = esc_code
+    def get(self):
+        return self._esc_code
+    def __call__(self, *args):
+        self._esc_code = curses.tparm(
+                self._base_esc_code, *args)
+        return self
+    def write(self):
+        self._stdout.write(self._esc_code)
+
 class EscCodeGenerator:
     def __init__(self, stdout):
         self._stdout = stdout
@@ -131,11 +145,7 @@ class EscCodeGenerator:
             self._esc_codes[method_name] = esc_code
     def __getattr__(self, method_name):
         esc_code = self._esc_codes[method_name]
-        return lambda *args: self._write_ansi_escape(esc_code, *args)
-    def _write_ansi_escape(self, esc_code, *args):
-        if len(args) > 0:
-            esc_code = curses.tparm(esc_code, *args)
-        self._stdout.write(esc_code)
+        return EscCodeObject(self._stdout, esc_code)
 
 def select_shell():
     if len(sys.argv) > 1:
@@ -219,11 +229,11 @@ def main():
     esc = EscCodeGenerator(stdout)
 
     # Clear the screen and set cursor position to top left corner
-    esc.clear()
-    esc.set_cursor_position(0, 0)
+    esc.clear.write()
+    esc.set_cursor_position(0, 0).write()
 
     # Set a scroll region (last two terminal lines excluded)
-    esc.set_scroll_region(0, height-3)
+    esc.set_scroll_region(0, height-3).write()
 
     # Set terminal in raw mode
     tty.setraw(1)
@@ -271,20 +281,16 @@ def main():
             # -- update the status line --
 
             # save and hide cursor
-            esc.save_cursor_position()
-            esc.hide_cursor()
+            esc.save_cursor_position.write()
+            esc.hide_cursor.write()
 
             # write status zone
             #debug.write(f"display: {repr(input_line)}\n")
             write_status_zone(stdout, esc, width, height, input_line)
 
-            # in case the user would have typed "reset" in the shell,
-            # ensure we re-create the scroll region before waiting
-            esc.set_scroll_region(0, height-3)
-
             # restore and show cursor
-            esc.restore_cursor_position()
-            esc.show_cursor()
+            esc.restore_cursor_position.write()
+            esc.show_cursor.write()
 
             # flush buffered stdout data
             stdout.flush()
@@ -306,9 +312,12 @@ def main():
                     if len(data) == 0:
                         continue
                 data = cursor_placement_filter(data)
+                # in case of terminal reset requested by the child process,
+                # do it but then restore our scroll window
+                ssr_esc_code = esc.set_scroll_region(0, height-3).get()
+                data = data.replace(b"\x1bc", b"\x1bc" + ssr_esc_code)
+                data = data.replace(b"\x1b[!p", b"\x1b[!p" + ssr_esc_code)
                 #debug.write(f"output: {repr(data)}\n")
-                if not data:
-                    break
                 stdout.write(data)
 
             # Read keyboard input and save it into input_history
@@ -331,8 +340,8 @@ def main():
         pass
     finally:
         # Restore scroll region to full height and clear
-        esc.set_scroll_region(0, height-1)
-        esc.clear()
+        esc.set_scroll_region(0, height-1).write()
+        esc.clear.write()
         stdout.flush()
         # Restore initial terminal parameters
         termios.tcsetattr(1, termios.TCSADRAIN, old_settings)
