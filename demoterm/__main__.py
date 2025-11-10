@@ -185,7 +185,7 @@ def read_available(fd):
 # 2. send one or more "\n" to scroll and create the missing rows
 # 3. possibly send one more escape code if the column parameter
 #    was not 1.
-def get_cursor_placement_filter(max_row):
+def get_cursor_placement_filter(esc, max_row):
     def replace_match(match):
         row = int(match.group(1))
         col = 1  # default for short form \e[<row>H
@@ -193,9 +193,9 @@ def get_cursor_placement_filter(max_row):
             col = int(match.group(2)[1:])
         if row > max_row:
             scroll_lines = row - max_row
-            return (f"\x1b[{max_row}H" +
-                    "\n" * scroll_lines +
-                    f"\x1b[{max_row};{col}H").encode()
+            return (esc.set_cursor_position(max_row-1).get() +
+                    b"\n" * scroll_lines +
+                    esc.set_cursor_position(max_row-1, col-1).get())
         else:
             return match.group(0)  # nothing changed
     return (lambda data:
@@ -248,7 +248,7 @@ def main():
         sys.exit(0)
 
     input_pprint = get_input_pprint_function()
-    cursor_placement_filter = get_cursor_placement_filter(height-2)
+    cursor_placement_filter = get_cursor_placement_filter(esc, height-2)
     input_history = []
 
     try:
